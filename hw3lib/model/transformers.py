@@ -164,7 +164,6 @@ class EncoderDecoderTransformer(nn.Module):
         if weight_tying:
             self.target_embedding.weight = self.final_linear.weight
 
-        raise NotImplementedError # Remove once implemented
 
     def encode(self, padded_sources: torch.Tensor, source_lengths: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, dict, dict]:
         '''
@@ -182,16 +181,21 @@ class EncoderDecoderTransformer(nn.Module):
         '''
 
         # TODO: Implement encode
+        
+
 
         # TODO: Apply source embedding, positional encoding, and dropout
         # Add the sinusoidal encoding here only when encoder_pos_encoding is 'sinusoidal'.
         # Rotary embeddings are applied inside the attention layers, not here, and 'none'
         # adds nothing. 'none' is worth trying with an LSTM based speech embedding, which
         # can capture the positional information on its own.
-        x_enc, x_enc_lengths = NotImplementedError, NotImplementedError
+        x_enc, x_enc_lengths = self.source_embedding(padded_sources, source_lengths)
+        if self.encoder_pos_encoding == 'sinusoidal':
+            x_enc = self.positional_encoding(x_enc)
+        x_enc = self.dropout(x_enc)
 
         # TODO: Create source padding mask on the same device as the input
-        pad_mask_src = NotImplementedError
+        pad_mask_src = PadMask(x_enc, x_enc_lengths)
 
         # TODO: Pass through encoder layers and save attention
         running_att = {}
@@ -200,15 +204,17 @@ class EncoderDecoderTransformer(nn.Module):
             if self.training and self.layer_drop_rate > 0 and random.random() < self.layer_drop_rate:
                 continue
 
-            x_enc, attention = NotImplementedError, NotImplementedError
+            x_enc, attention = self.enc_layers[i](x_enc, key_padding_mask=pad_mask_src)
             running_att[f'layer{i+1}_enc_self'] = attention
 
         # TODO: final normalization and CTC projection
-        x_enc = NotImplementedError
-        ctc_logits = NotImplementedError
+        x_enc = self.encoder_norm(x_enc)
+        ctc_logits = self.ctc_head(x_enc)
 
         # TODO: Return the encoded representation, padding mask, running attention weights, and CTC inputs (see docstring)
-        raise NotImplementedError
+        ctc_inputs = {'log_probs': ctc_logits.transpose(0, 1), 'lengths': x_enc_lengths}
+        
+        return x_enc, pad_mask_src, running_att, ctc_inputs
 
     def decode(
         self, 
@@ -233,18 +239,21 @@ class EncoderDecoderTransformer(nn.Module):
         # TODO: Create target padding mask on the same device as the input
         pad_mask_tgt = None
         if target_lengths is not None:
-            pad_mask_tgt = NotImplementedError
+            pad_mask_tgt = PadMask(padded_targets, target_lengths)
 
         if pad_mask_tgt is None and self.training:
             warnings.warn("pad_mask_tgt is None, unless you are using the decoder as a standalone model or doing inference, you should provide target_lengths")
 
         # TODO: Create causal mask on the same device as the input
-        causal_mask = NotImplementedError
+        causal_mask = CausalMask(padded_targets)
 
         # TODO: Apply target embedding, positional encoding, and dropout
         # As in encode, add the sinusoidal encoding here only when decoder_pos_encoding
         # is 'sinusoidal'. Rotary embeddings are applied inside the attention layers.
-        x_dec = NotImplementedError
+        x_dec = self.target_embedding(padded_targets)
+        if self.decoder_pos_encoding == 'sinusoidal':
+            x_dec = self.positional_encoding(x_dec)
+        x_dec = self.dropout(x_dec)
 
         # TODO: Pass through decoder layers and save attention
         running_att = {}
@@ -252,15 +261,21 @@ class EncoderDecoderTransformer(nn.Module):
             if self.training and self.layer_drop_rate > 0 and random.random() < self.layer_drop_rate:
                 continue
 
-            x_dec, self_attn, cross_attn = NotImplementedError, NotImplementedError, NotImplementedError
+            x_dec, self_attn, cross_attn = self.dec_layers[i](
+                x_dec,
+                encoder_output,
+                dec_key_padding_mask=pad_mask_tgt,
+                enc_key_padding_mask=pad_mask_src,
+                attn_mask=causal_mask,
+            )
             running_att[f'layer{i+1}_dec_self'] = self_attn
             running_att[f'layer{i+1}_dec_cross'] = cross_attn
 
         # TODO: final normalization and projection
-        seq_out = NotImplementedError
+        seq_out = self.final_linear(self.decoder_norm(x_dec))
 
         # TODO: Return the output sequence and running attention weights
-        raise NotImplementedError
+        return seq_out, running_att
 
     def forward(
         self,
@@ -289,20 +304,21 @@ class EncoderDecoderTransformer(nn.Module):
         if self.training and target_lengths is None:
             raise ValueError("target_lengths must be provided during training")
 
+
         if self.training and source_lengths is None:
             raise ValueError("source_lengths must be provided during training")
         
         # TODO: Implement forward
 
         # TODO: run encoder then decoder
-        encoder_output, pad_mask_src, enc_running_att, ctc_inputs = NotImplementedError, NotImplementedError, NotImplementedError, NotImplementedError
-        seq_out, dec_running_att = NotImplementedError, NotImplementedError
+        encoder_output, pad_mask_src, enc_running_att, ctc_inputs = self.encode(padded_sources, source_lengths)
+        seq_out, dec_running_att = self.decode(padded_targets, encoder_output, target_lengths, pad_mask_src)
         
         # Combine attention dictionaries
         running_att = {**enc_running_att, **dec_running_att}
         
         # TODO: Return the output sequence, running attention weights, and CTC inputs (see docstring)
-        raise NotImplementedError
+        return seq_out, running_att, ctc_inputs
 
     def score(self, batch_prompts: torch.Tensor, encoder_output: torch.Tensor, pad_mask_src: torch.Tensor) -> torch.Tensor:
         '''
