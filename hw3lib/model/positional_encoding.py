@@ -1,3 +1,5 @@
+from turtle import position
+
 import torch
 from torch import nn
 import math
@@ -44,8 +46,16 @@ class PositionalEncoding(nn.Module):
             max_len (int): The maximum length of the input sequence.
         """
         # TODO: Implement create_pe_table
-        raise NotImplementedError # Remove once implemented
-        pe = NotImplementedError
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(max_len, dtype=torch.float32).unsqueeze(1)    # (max_len, 1)
+        even_dims = torch.arange(0, d_model, 2, dtype=torch.float32)          # 0, 2, 4, ...
+        denom = 10000 ** (even_dims / d_model)
+
+        pe[:, 0::2] = torch.sin(position / denom)
+        pe[:, 1::2] = torch.cos(position / denom)
+
+        pe = pe.unsqueeze(0)                                                  # (1, max_len, d_model)
+
         # Register as buffer to save with model state
         self.register_buffer('pe', pe)
         
@@ -62,12 +72,12 @@ class PositionalEncoding(nn.Module):
         """
         # TODO: Implement forward
         # Step 1: Get sequence length from input tensor
-        seq_len = NotImplementedError
+        seq_len = x.size(1)
         # Step 2: Verify sequence length doesn't exceed maximum length, raise error if it does
         if seq_len > self.pe.size(1):
             raise ValueError(f"Sequence length {seq_len} exceeds the maximum length {self.pe.size(1)}")
         # Step 3: Add positional encodings to input
-        raise NotImplementedError # Remove once implemented
+        return x + self.pe[:, :seq_len] # Remove once implemented
 
 ## -------------------------------------------------------------------------------------------------
 
@@ -100,11 +110,18 @@ class RotaryPositionalEncoding(nn.Module):
         """
         # TODO: Implement create_rope_table
         # Step 1: Compute the inverse frequencies for the head_dim//2 pairs
+        inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim))
+
         # Step 2: Take the outer product with the positions to get the angles
+        positions = torch.arange(max_len, dtype=torch.float32)
+        angles = torch.outer(positions, inv_freq)              # (max_len, head_dim//2)
+
         # Step 3: Widen the angles to head_dim so each pair shares an angle, then take cos and sin
-        raise NotImplementedError # Remove once implemented
-        cos = NotImplementedError
-        sin = NotImplementedError
+        angles = torch.cat([angles, angles], dim=1)          # (max_len, head_dim)
+        cos = torch.cos(angles)[None, None, :, :]              # (1, 1, max_len, head_dim)
+        sin = torch.sin(angles)[None, None, :, :]
+
+
         # Register as buffers to save with model state
         self.register_buffer('cos', cos)
         self.register_buffer('sin', sin)
@@ -120,7 +137,9 @@ class RotaryPositionalEncoding(nn.Module):
             torch.Tensor: Rotated tensor of the same shape
         """
         # TODO: Implement rotate_half
-        raise NotImplementedError # Remove once implemented
+        x1, x2 = x.chunk(2, dim=-1)
+        
+        return torch.cat([-x2, x1], dim=-1)
 
     def forward(self, q: torch.Tensor, k: torch.Tensor, offset: int = 0):
         """
@@ -137,10 +156,15 @@ class RotaryPositionalEncoding(nn.Module):
         """
         # TODO: Implement forward
         # Step 1: Get sequence length from the query tensor
-        seq_len = NotImplementedError
+        seq_len = q.size(2)
         # Step 2: Verify sequence length doesn't exceed maximum length, raise error if it does
         if offset + seq_len > self.cos.size(2):
             raise ValueError(f"Sequence length {offset + seq_len} exceeds the maximum length {self.cos.size(2)}")
         # Step 3: Slice the cos and sin tables to the positions in use
+        cos = self.cos[:, :, offset:offset + seq_len, :]
+        sin = self.sin[:, :, offset:offset + seq_len, :]
         # Step 4: Rotate q and k, where rotating x is  x * cos + self.rotate_half(x) * sin
-        raise NotImplementedError # Remove once implemented
+        q_rotated = q * cos + self.rotate_half(q) * sin
+        k_rotated = k * cos + self.rotate_half(k) * sin
+
+        return q_rotated, k_rotated
