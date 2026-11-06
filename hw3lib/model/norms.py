@@ -32,13 +32,14 @@ class RMSNorm(nn.Module):
             d_model (int): The dimension being normalized over.
             eps   (float): Added inside the square root for numerical stability.
         '''
+       
+        # TODO: Implement __init__
         super().__init__()
         self.eps = eps
-        # TODO: Implement __init__
 
         # TODO: Initialize the learnable scale
-        self.weight = NotImplementedError
-        raise NotImplementedError # Remove once implemented
+        self.weight = nn.Parameter(torch.ones(d_model))
+    
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         '''
@@ -51,8 +52,12 @@ class RMSNorm(nn.Module):
         # TODO: Implement forward
         # Step 1: Compute the root mean square over the last dimension in float32, keeping the dimension
         # Step 2: Divide the input by it, then cast back to the input dtype
-        # Step 3: Apply the learnable scale
-        raise NotImplementedError # Remove once implemented
+        # Step 3: Apply the learnable scale\
+        x_float = x.float()
+        rms = torch.sqrt(x_float.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        out = (x_float / rms).to(x.dtype)
+        return out * self.weight
+    
 
 ## -------------------------------------------------------------------------------------------------
 
