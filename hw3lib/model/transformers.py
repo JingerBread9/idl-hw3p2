@@ -3,7 +3,7 @@ import torch
 import random
 from typing import Tuple, Optional, Literal
 from .masks import PadMask, CausalMask
-from .positional_encoding import PositionalEncoding
+from .positional_encoding import PositionalEncoding, RotaryPositionalEncoding
 from .decoder_layers import CrossAttentionDecoderLayer
 from .encoder_layers import SelfAttentionEncoderLayer
 from .speech_embedding import SpeechEmbedding
@@ -14,35 +14,35 @@ TODO: Implement these Modules.
 This file contains the transformer architecture used in this homework:
 
 EncoderDecoderTransformer: Used for ASR (Automatic Speech Recognition) tasks
-   - Contains an encoder stack for processing speech features
-   - Contains a decoder stack for generating text tokens
-   - Uses both self-attention and cross-attention mechanisms
-   - Includes CTC auxiliary loss support and optional weight tying
+- Contains an encoder stack for processing speech features
+- Contains a decoder stack for generating text tokens
+- Uses both self-attention and cross-attention mechanisms
+- Includes CTC auxiliary loss support and optional weight tying
 
-   Key components to implement:
-   1. Speech Embedding: Convert speech features to vectors with time reduction
-   2. Positional Encoding: Add position information (optional for both encoder/decoder)
-   3. Encoder Stack: Process speech features
-   4. Decoder Stack: Generate text tokens
-   5. CTC Head: For auxiliary CTC loss computation
-   6. Output Projection: Convert final representations to logits
+Key components to implement:
+1. Speech Embedding: Convert speech features to vectors with time reduction
+2. Positional Encoding: Add position information (optional for both encoder/decoder)
+3. Encoder Stack: Process speech features
+4. Decoder Stack: Generate text tokens
+5. CTC Head: For auxiliary CTC loss computation
+6. Output Projection: Convert final representations to logits
 
-   Architecture follows Pre-LN (Layer Normalization) design where:
-   - Layer normalization is applied at the start of each sublayer
-   - Residual connections wrap around each sublayer
-   - Final layer norm is applied before output projection
+Architecture follows Pre-LN (Layer Normalization) design where:
+- Layer normalization is applied at the start of each sublayer
+- Residual connections wrap around each sublayer
+- Final layer norm is applied before output projection
 
-   Implementation Notes:
-   1. The forward pass should handle:
-   - Proper masking (padding for encoder, both padding and causal for decoder)
-   - Collecting attention weights from all layers
-   - Optional layer dropout during training
-   - CTC logits computation
+Implementation Notes:
+1. The forward pass should handle:
+- Proper masking (padding for encoder, both padding and causal for decoder)
+- Collecting attention weights from all layers
+- Optional layer dropout during training
+- CTC logits computation
 
-   2. The score method should:
-   - Handle single token prediction given encoder output
-   - Not apply padding masks to decoder inputs
-   - Return only the final token's logits
+2. The score method should:
+- Handle single token prediction given encoder output
+- Not apply padding masks to decoder inputs
+- Return only the final token's logits
 '''
 
 ## -------------------------------------------------------------------------------------------------
@@ -120,29 +120,44 @@ class EncoderDecoderTransformer(nn.Module):
         # does not use them. Each stack rotates over its own head dimension, which is
         # d_model // num_heads for that stack, and every layer in a stack must share
         # the same object rather than building its own.
-        self.encoder_rope = NotImplementedError
-        self.decoder_rope = NotImplementedError
+        self.encoder_rope = RotaryPositionalEncoding(d_model // num_encoder_heads, max_len) if encoder_pos_encoding == 'rope' else None
+        self.decoder_rope = RotaryPositionalEncoding(d_model // num_decoder_heads, max_len) if decoder_pos_encoding == 'rope' else None
 
         # TODO: Implement __init__:
         # create encoder/decoder stacks, embeddings, positional encoding, dropout, norms, and final linear layer
         # Pass norm_type, ffn_type, qk_norm and the rotary embeddings down to the layers
-        self.enc_layers = NotImplementedError
-        self.dec_layers = NotImplementedError
+        self.enc_layers = nn.ModuleList([
+        SelfAttentionEncoderLayer(d_model, num_encoder_heads, d_ff_encoder, dropout=dropout,
+                                  norm_type=norm_type, ffn_type=ffn_type,
+                                  rope=self.encoder_rope, qk_norm=qk_norm)
+        for _ in range(num_encoder_layers)
+        ])
+        self.dec_layers = nn.ModuleList([
+        CrossAttentionDecoderLayer(d_model, num_decoder_heads, d_ff_decoder, dropout=dropout,
+                                   norm_type=norm_type, ffn_type=ffn_type,
+                                   rope=self.decoder_rope, qk_norm=qk_norm)
+        for _ in range(num_decoder_layers)
+        ])
 
-        self.source_embedding = NotImplementedError
-        self.target_embedding = NotImplementedError
+        self.source_embedding = SpeechEmbedding(input_dim, d_model, time_reduction, reduction_method, dropout)
+        self.target_embedding = nn.Embedding(num_classes, d_model)
+        
+
         # Only needed if either stack uses 'sinusoidal'
-        self.positional_encoding = NotImplementedError
-        self.final_linear = NotImplementedError
-        self.dropout = NotImplementedError
-        self.encoder_norm = NotImplementedError
-        self.decoder_norm = NotImplementedError
+        self.positional_encoding = PositionalEncoding(d_model, max_len)
+        self.final_linear = nn.Linear(d_model, num_classes, bias=False)   # decoder space → vocabulary
+        self.dropout = nn.Dropout(dropout)
+        self.encoder_norm = nn.LayerNorm(d_model)
+        self.decoder_norm = nn.LayerNorm(d_model)
 
         # TODO: Create the CTC head
         # Use nn.Sequential to create the CTC head
         # CTC head should project the final encoder output from the d_model space to the num_classes space
         # To be compatible with CTCLoss, a log_softmax to the output (See. nn.LogSoftmax)
-        self.ctc_head            = NotImplementedError # CTC head
+        self.ctc_head = nn.Sequential(
+        nn.Linear(d_model, num_classes),
+            nn.LogSoftmax(dim=-1)
+        )# CTC head
 
 
         # Weight tying if enabled (extra form of regularization, read more about it)
@@ -184,7 +199,7 @@ class EncoderDecoderTransformer(nn.Module):
             # Optionally apply LayerDrop during training (More regularization!)
             if self.training and self.layer_drop_rate > 0 and random.random() < self.layer_drop_rate:
                 continue
- 
+
             x_enc, attention = NotImplementedError, NotImplementedError
             running_att[f'layer{i+1}_enc_self'] = attention
 
@@ -236,7 +251,7 @@ class EncoderDecoderTransformer(nn.Module):
         for i in range(self.num_decoder_layers):
             if self.training and self.layer_drop_rate > 0 and random.random() < self.layer_drop_rate:
                 continue
- 
+
             x_dec, self_attn, cross_attn = NotImplementedError, NotImplementedError, NotImplementedError
             running_att[f'layer{i+1}_dec_self'] = self_attn
             running_att[f'layer{i+1}_dec_cross'] = cross_attn
