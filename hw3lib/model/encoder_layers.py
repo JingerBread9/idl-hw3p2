@@ -51,9 +51,11 @@ class SelfAttentionEncoderLayer(nn.Module):
         '''
         super().__init__()
         # TODO: Implement __init__
+        self.self_attn = SelfAttentionLayer(d_model, num_heads, dropout=dropout, norm_type=norm_type, rope=rope, qk_norm=qk_norm)
+        
 
-        # TODO: Initialize the sublayers      
-        raise NotImplementedError # Remove once implemented
+        # TODO: Initialize the sublayers   
+        self.ffn = FeedForwardLayer(d_model, d_ff, dropout=dropout, norm_type=norm_type, ffn_type=ffn_type)
 
     def forward(self, x: torch.Tensor, key_padding_mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         '''
@@ -67,9 +69,11 @@ class SelfAttentionEncoderLayer(nn.Module):
             mha_attn_weights (torch.Tensor): The attention weights. shape: (batch_size, seq_len, seq_len)   
         '''
         # TODO: Implement forward: Follow the figure in the writeup
+        x, mha_attn_weights = self.self_attn(x, key_padding_mask=key_padding_mask)
 
         # What will be different from decoder self-attention layer?
-        
+        x = self.ffn(x)
+
         # TODO: Return the output tensor and attention weights
-        raise NotImplementedError # Remove once implemented
+        return x, mha_attn_weights
 
