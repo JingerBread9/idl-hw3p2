@@ -1,0 +1,10 @@
+.DS_Store
+__pycache__/
+.ipynb_checkpoints/
+HW3P2_Student_Handout.zip
+requirements_mac.txt
+wandb/
+expts/
+*.pth
+*.pt
+results.csv
