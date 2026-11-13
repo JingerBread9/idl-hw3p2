@@ -404,7 +404,12 @@ class ASRTrainer(BaseTrainer):
                 # TODO: Generate sequences
                 if recognition_config['beam_width'] > 1:
                     # TODO: If you have implemented beam search, generate sequences using beam search
-                    raise NotImplementedError("Beam search not implemented yet")
+                    seqs, scores = generator.generate_beam(
+                        prompts,
+                        beam_width=recognition_config['beam_width'],
+                        temperature=recognition_config['temperature'],
+                        repeat_penalty=recognition_config['repeat_penalty'],
+                    )
                     # Pick best beam
                     seqs = seqs[:, 0, :]
                     scores = scores[:, 0]
