@@ -142,6 +142,8 @@ class ASRTrainer(BaseTrainer):
 
             # Only update weights after accumulating enough gradients
             if (i + 1) % self.config['training']['gradient_accumulation_steps'] == 0:
+                self.scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.scaler.step(self.optimizer)
                 if not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                     self.scheduler.step()
@@ -170,6 +172,8 @@ class ASRTrainer(BaseTrainer):
 
         # Handle remaining gradients
         if (len(dataloader) % self.config['training']['gradient_accumulation_steps']) != 0:
+            self.scaler.unscale_(self.optimizer)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.scaler.step(self.optimizer)
             if not isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                 self.scheduler.step()
@@ -202,7 +206,10 @@ class ASRTrainer(BaseTrainer):
             Tuple[Dict[str, float], List[Dict[str, Any]]]: Validation metrics and recognition results
         """
         # TODO: In-fill the _validate_epoch method
-        results = self.recognize(dataloader)
+        dic = {
+            'num_batches': 25,'temperature': 1.0,'repeat_penalty': 1.0,'beam_width': 1
+        }
+        results = self.recognize(dataloader, dic, config_name='val')
         references = [r['target'] for r in results]
         hypotheses = [r['generated'] for r in results]
         metrics = self._calculate_asr_metrics(references, hypotheses)
